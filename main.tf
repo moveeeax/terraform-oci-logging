@@ -16,6 +16,26 @@ resource "oci_logging_log" "this" {
   retention_duration = var.log.retention_duration
   is_enabled         = var.log.is_enabled
 
+  # Only SERVICE logs carry a configuration; it is what actually wires an OCI
+  # service's events into the log. Without it the log is created and stays
+  # permanently empty. var.log validation guarantees source is set exactly when
+  # log_type is SERVICE.
+  dynamic "configuration" {
+    for_each = var.log.source == null ? [] : [var.log.source]
+
+    content {
+      compartment_id = var.compartment_id
+
+      source {
+        service     = configuration.value.service
+        resource    = configuration.value.resource
+        category    = configuration.value.category
+        source_type = configuration.value.source_type
+        parameters  = configuration.value.parameters
+      }
+    }
+  }
+
   freeform_tags = var.freeform_tags
   defined_tags  = var.defined_tags
 }

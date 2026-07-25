@@ -27,7 +27,50 @@ module "logging" {
 }
 ```
 
-A runnable example lives in [`examples/basic`](examples/basic).
+### Service logs
+
+A `SERVICE` log must say which OCI service and resource it collects from. That is
+what `log.source` is for — OCI will happily create a service log without one, and
+it will then sit there permanently empty, so the module refuses the combination at
+plan time.
+
+```hcl
+module "flow_logs" {
+  source = "github.com/moveeeax/terraform-oci-logging"
+
+  compartment_id = var.compartment_id
+  display_name   = "network-log-group"
+
+  log = {
+    display_name       = "subnet-flow-logs"
+    log_type           = "SERVICE"
+    retention_duration = 90
+
+    source = {
+      service  = "flowlogs"
+      resource = var.subnet_id
+      category = "all"
+    }
+  }
+}
+```
+
+Conversely a `CUSTOM` log must not set `log.source`: custom logs are written by
+the Unified Monitoring Agent or the `PutLogs` API, not by an OCI service.
+
+Runnable examples live in [`examples/basic`](examples/basic) and
+[`examples/service-log`](examples/service-log).
+
+## Notes
+
+- `retention_duration` accepts only `30`, `60`, `90`, `120`, `150` or `180`. OCI
+  takes retention in 30-day increments up to 180 days and rejects anything else
+  with an API error at apply time, so the module checks it at plan time.
+- Logs default to `is_enabled = true`. Setting it to `false` keeps the log object
+  but stops collection entirely.
+- Leaving `log` unset creates the log group alone. A log group collects nothing by
+  itself — it is an IAM and organisational container — so this is only useful when
+  the logs inside it are managed elsewhere.
 
 ## Requirements
 
@@ -43,9 +86,29 @@ A runnable example lives in [`examples/basic`](examples/basic).
 | `compartment_id` | OCID of the compartment in which to create the log group.         | `string`      | n/a     |   yes    |
 | `display_name`   | Human-readable name for the log group.                            | `string`      | n/a     |   yes    |
 | `description`    | Description of the log group.                                     | `string`      | `null`  |    no    |
-| `log`            | Optional custom log to create inside the group.                   | `object(...)` | `null`  |    no    |
+| `log`            | Optional log to create inside the group (see below).              | `object(...)` | `null`  |    no    |
 | `freeform_tags`  | Free-form tags applied to the log group and log.                  | `map(string)` | `{}`    |    no    |
 | `defined_tags`   | Defined tags applied to the group and log, keyed `namespace.key`. | `map(string)` | `{}`    |    no    |
+
+### `log` object
+
+| Attribute            | Description                                                     | Type          | Default     | Required |
+|----------------------|-----------------------------------------------------------------|---------------|-------------|:--------:|
+| `display_name`       | Human-readable name for the log.                                | `string`      | n/a         |   yes    |
+| `log_type`           | `CUSTOM` or `SERVICE`.                                          | `string`      | `"CUSTOM"`  |    no    |
+| `retention_duration` | Retention in days: `30`, `60`, `90`, `120`, `150` or `180`.     | `number`      | `30`        |    no    |
+| `is_enabled`         | Whether the log collects events.                                | `bool`        | `true`      |    no    |
+| `source`             | Service source. Required for `SERVICE`, forbidden for `CUSTOM`. | `object(...)` | `null`      |    no    |
+
+### `log.source` object
+
+| Attribute     | Description                                          | Type          | Default         | Required |
+|---------------|------------------------------------------------------|---------------|-----------------|:--------:|
+| `service`     | OCI service generating the log, e.g. `flowlogs`.     | `string`      | n/a             |   yes    |
+| `resource`    | OCID of the resource emitting the log.               | `string`      | n/a             |   yes    |
+| `category`    | Log category for that service, e.g. `all`.           | `string`      | n/a             |   yes    |
+| `source_type` | Only `OCISERVICE` is supported.                      | `string`      | `"OCISERVICE"`  |    no    |
+| `parameters`  | Extra parameters required by some service categories.| `map(string)` | `null`          |    no    |
 
 ## Outputs
 
@@ -55,6 +118,17 @@ A runnable example lives in [`examples/basic`](examples/basic).
 | `log_group_display_name` | Display name of the log group.                 |
 | `log_id`                 | OCID of the created log, if requested.         |
 | `state`                  | Lifecycle state of the log group.              |
+
+## Testing
+
+```sh
+terraform init -backend=false
+terraform test
+```
+
+The suite in [`tests/`](tests) uses `mock_provider`, so it needs no OCI
+credentials and no network. Running it requires Terraform or OpenTofu >= 1.7; the
+module itself still only requires >= 1.5.
 
 ## License
 

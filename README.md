@@ -8,7 +8,7 @@ organise logs and control their IAM policies.
 
 ```hcl
 module "logging" {
-  source = "github.com/moveeeax/terraform-oci-logging"
+  source = "github.com/moveeeax/terraform-oci-logging?ref=v1.0.0"
 
   compartment_id = var.compartment_id
   display_name   = "prod-log-group"
@@ -36,7 +36,7 @@ plan time.
 
 ```hcl
 module "flow_logs" {
-  source = "github.com/moveeeax/terraform-oci-logging"
+  source = "github.com/moveeeax/terraform-oci-logging?ref=v1.0.0"
 
   compartment_id = var.compartment_id
   display_name   = "network-log-group"

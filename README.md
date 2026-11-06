@@ -1,7 +1,7 @@
 # terraform-oci-logging
 
 Terraform module that manages an [Oracle Cloud Infrastructure](https://www.oracle.com/cloud/)
-Logging log group and, optionally, a custom log inside it. Log groups are containers that
+Logging log group and, optionally, one or several logs inside it. Log groups are containers that
 organise logs and control their IAM policies.
 
 ## Usage
@@ -58,6 +58,40 @@ module "flow_logs" {
 Conversely a `CUSTOM` log must not set `log.source`: custom logs are written by
 the Unified Monitoring Agent or the `PutLogs` API, not by an OCI service.
 
+### Several logs per group
+
+`logs` is a map of logs to create in the same group. Each entry takes the same
+fields as `log`, and `display_name` defaults to the map key. The `log_ids` output
+maps the same keys to log OCIDs.
+
+```hcl
+module "lb_logs" {
+  source = "github.com/moveeeax/terraform-oci-logging?ref=v1.2.0"
+
+  compartment_id = var.compartment_id
+  display_name   = "lb-log-group"
+
+  logs = {
+    lb-access = {
+      log_type = "SERVICE"
+      source   = { service = "loadbalancer", resource = var.lb_id, category = "access" }
+    }
+    lb-error = {
+      log_type           = "SERVICE"
+      retention_duration = 90
+      source             = { service = "loadbalancer", resource = var.lb_id, category = "error" }
+    }
+  }
+}
+```
+
+Flow logs for every subnet follow the same shape, e.g.
+`logs = { for name, id in var.subnet_ids : name => { log_type = "SERVICE", source = { service = "flowlogs", resource = id, category = "all" } } }`.
+
+`log` still works and can be combined with `logs`. Log display names must be
+unique within the group (an OCI rule), so the plan fails when two logs, from `log`
+or `logs`, resolve to the same name.
+
 Runnable examples live in [`examples/basic`](examples/basic) and
 [`examples/service-log`](examples/service-log).
 
@@ -68,7 +102,7 @@ Runnable examples live in [`examples/basic`](examples/basic) and
   with an API error at apply time, so the module checks it at plan time.
 - Logs default to `is_enabled = true`. Setting it to `false` keeps the log object
   but stops collection entirely.
-- Leaving `log` unset creates the log group alone. A log group collects nothing by
+- Leaving both `log` and `logs` unset creates the log group alone. A log group collects nothing by
   itself — it is an IAM and organisational container — so this is only useful when
   the logs inside it are managed elsewhere.
 
@@ -86,11 +120,14 @@ Runnable examples live in [`examples/basic`](examples/basic) and
 | `compartment_id` | OCID of the compartment in which to create the log group.         | `string`      | n/a     |   yes    |
 | `display_name`   | Human-readable name for the log group.                            | `string`      | n/a     |   yes    |
 | `description`    | Description of the log group.                                     | `string`      | `null`  |    no    |
-| `log`            | Optional log to create inside the group (see below).              | `object(...)` | `null`  |    no    |
-| `freeform_tags`  | Free-form tags applied to the log group and log.                  | `map(string)` | `{}`    |    no    |
+| `log`            | Optional single log to create inside the group (see below).       | `object(...)` | `null`  |    no    |
+| `logs`           | Logs to create inside the group, keyed by name; each entry like `log`, `display_name` optional (defaults to the key). | `map(object(...))` | `{}` | no |
+| `freeform_tags`  | Free-form tags applied to the log group and its logs.             | `map(string)` | `{}`    |    no    |
 | `defined_tags`   | Defined tags applied to the group and log, keyed `namespace.key`. | `map(string)` | `{}`    |    no    |
 
-### `log` object
+### `log` object (and each `logs` entry)
+
+In `logs` entries `display_name` is optional and defaults to the map key.
 
 | Attribute            | Description                                                     | Type          | Default     | Required |
 |----------------------|-----------------------------------------------------------------|---------------|-------------|:--------:|
@@ -116,7 +153,8 @@ Runnable examples live in [`examples/basic`](examples/basic) and
 |--------------------------|------------------------------------------------|
 | `log_group_id`           | OCID of the log group.                         |
 | `log_group_display_name` | Display name of the log group.                 |
-| `log_id`                 | OCID of the created log, if requested.         |
+| `log_id`                 | OCID of the log from `log`, or `null`.         |
+| `log_ids`                | Map of `logs` keys to log OCIDs.               |
 | `state`                  | Lifecycle state of the log group.              |
 
 ## Testing

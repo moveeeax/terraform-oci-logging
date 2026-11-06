@@ -177,3 +177,201 @@ run "unknown_source_type_is_rejected" {
 
   expect_failures = [var.log]
 }
+
+run "no_logs_map_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(oci_logging_log.logs) == 0
+    error_message = "var.logs must default to creating no logs."
+  }
+}
+
+run "several_logs_in_one_group" {
+  variables {
+    logs = {
+      lb-access = {
+        log_type = "SERVICE"
+        source = {
+          service  = "loadbalancer"
+          resource = "ocid1.loadbalancer.oc1..aaaaaaaaexample"
+          category = "access"
+        }
+      }
+      lb-error = {
+        display_name       = "load-balancer-errors"
+        log_type           = "SERVICE"
+        retention_duration = 90
+        source = {
+          service  = "loadbalancer"
+          resource = "ocid1.loadbalancer.oc1..aaaaaaaaexample"
+          category = "error"
+        }
+      }
+      app = {}
+    }
+  }
+
+  assert {
+    condition     = length(oci_logging_log.logs) == 3 && length(oci_logging_log.this) == 0
+    error_message = "One log per var.logs entry must be created, and no single log without var.log."
+  }
+
+  assert {
+    condition     = alltrue([for l in oci_logging_log.logs : l.log_group_id == oci_logging_log_group.this.id])
+    error_message = "Every log must be created in the module's log group."
+  }
+
+  assert {
+    condition     = oci_logging_log.logs["lb-access"].display_name == "lb-access" && oci_logging_log.logs["lb-error"].display_name == "load-balancer-errors"
+    error_message = "display_name must default to the map key and honour an explicit value."
+  }
+
+  assert {
+    condition     = oci_logging_log.logs["lb-access"].configuration[0].source[0].category == "access" && oci_logging_log.logs["lb-error"].configuration[0].source[0].category == "error"
+    error_message = "Each SERVICE log must carry its own source configuration."
+  }
+
+  assert {
+    condition     = oci_logging_log.logs["lb-error"].retention_duration == 90 && oci_logging_log.logs["lb-access"].retention_duration == 30
+    error_message = "retention_duration must be passed through and default to 30."
+  }
+
+  assert {
+    condition     = oci_logging_log.logs["app"].log_type == "CUSTOM" && oci_logging_log.logs["app"].is_enabled == true && length(oci_logging_log.logs["app"].configuration) == 0
+    error_message = "An empty logs entry must default to an enabled CUSTOM log without a source."
+  }
+
+  assert {
+    condition     = length(output.log_ids) == 3 && output.log_ids["lb-access"] == oci_logging_log.logs["lb-access"].id
+    error_message = "log_ids must map every var.logs key to its log OCID."
+  }
+
+  assert {
+    condition     = output.log_id == null
+    error_message = "log_id must stay null when var.log is not set."
+  }
+}
+
+run "log_and_logs_combine" {
+  variables {
+    log = {
+      display_name = "app-custom-log"
+    }
+    logs = {
+      audit = {}
+    }
+  }
+
+  assert {
+    condition     = length(oci_logging_log.this) == 1 && length(oci_logging_log.logs) == 1
+    error_message = "var.log and var.logs must be usable together."
+  }
+
+  assert {
+    condition     = output.log_id == oci_logging_log.this[0].id && output.log_ids["audit"] == oci_logging_log.logs["audit"].id
+    error_message = "log_id and log_ids must expose their own logs."
+  }
+}
+
+run "duplicate_name_across_log_and_logs_is_rejected" {
+  command = plan
+
+  variables {
+    log = {
+      display_name = "app"
+    }
+    logs = {
+      app = {}
+    }
+  }
+
+  expect_failures = [oci_logging_log_group.this]
+}
+
+run "duplicate_name_within_logs_is_rejected" {
+  command = plan
+
+  variables {
+    logs = {
+      one = { display_name = "same" }
+      two = { display_name = "same" }
+    }
+  }
+
+  expect_failures = [var.logs]
+}
+
+run "logs_service_entry_without_source_is_rejected" {
+  command = plan
+
+  variables {
+    logs = {
+      flow = { log_type = "SERVICE" }
+    }
+  }
+
+  expect_failures = [var.logs]
+}
+
+run "logs_custom_entry_with_source_is_rejected" {
+  command = plan
+
+  variables {
+    logs = {
+      app = {
+        source = {
+          service  = "flowlogs"
+          resource = "ocid1.subnet.oc1..aaaaaaaaexample"
+          category = "all"
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.logs]
+}
+
+run "logs_retention_outside_increments_is_rejected" {
+  command = plan
+
+  variables {
+    logs = {
+      app = { retention_duration = 45 }
+    }
+  }
+
+  expect_failures = [var.logs]
+}
+
+run "logs_unknown_log_type_is_rejected" {
+  command = plan
+
+  variables {
+    logs = {
+      app = { log_type = "NotAValidValue" }
+    }
+  }
+
+  expect_failures = [var.logs]
+}
+
+run "logs_unknown_source_type_is_rejected" {
+  command = plan
+
+  variables {
+    logs = {
+      flow = {
+        log_type = "SERVICE"
+        source = {
+          service     = "flowlogs"
+          resource    = "ocid1.subnet.oc1..aaaaaaaaexample"
+          category    = "all"
+          source_type = "SOMETHINGELSE"
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.logs]
+}
